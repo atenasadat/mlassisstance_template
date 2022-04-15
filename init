@@ -1,0 +1,214 @@
+#!/bin/bash
+
+set -euo pipefail
+
+REPO_URL=$(git config --get remote.origin.url)
+PROJECT_NAME=
+NEW_REPO=1
+ADD_KEY=1
+ADD_INVENTORY=1
+PYTHON=python
+GH_AUTH_DONE=0
+
+function inflate_options() {
+  while [ -n "${1+x}" ]; do
+    case "$1" in
+    --help|-h)
+      help
+      exit 0
+      ;;
+    --project-name|-p)
+      shift
+      PROJECT_NAME="$1"
+      shift
+      ;;
+    --old-repo)
+      shift
+      NEW_REPO=0
+      ;;
+    --skip-key)
+      shift
+      ADD_KEY=0
+      ;;
+    --skip-inventory)
+      shift
+      ADD_INVENTORY=0
+      ;;
+    --python-executable)
+      shift
+      PYTHON="$1"
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1. Options are:"
+      help
+      exit 2
+      ;;
+    esac
+  done
+}
+
+function help() {
+  echo "Usage: $0 [OPTIONS]"
+  echo "Options:"
+  echo "  --help|-h                                 - show this help"
+  echo "  --project-name|-p <project-name>          - name of the project (MUST be snake_case)"
+  echo "  --old-repo                                - disable initial package preparation"
+  echo "  --skip-key                                - skip adding deploy key to the repo"
+  echo "  --skip-inventory                          - skip adding inventory to the project"
+  echo "  --python-executable <python-executable>   - custom python executable to use (default: python)"
+}
+
+function check_options() {
+  if [ -z ${PROJECT_NAME+x} ]; then
+    echo "ERROR: The following inputs must be specified: --service-name"
+    exit 3
+  fi
+}
+
+function escape_sed() {
+  echo $(echo $1 | sed -e 's/\\/\\\\/g; s/\//\\\//g; s/&/\\\&/g')
+}
+
+function prepare_package() {
+  # Rename the project_name directory inside the src to your project name (better to be snake_case).
+  mv src/project_name src/$PROJECT_NAME
+
+  # Change the project_name inside src/main.py as described above.
+  sed -i "" "s/project_name/$(escape_sed $PROJECT_NAME)/g" src/main.py
+  echo "INFO: Package $PROJECT_NAME prepared."
+}
+
+function gh_auth() {
+  if [ $GH_AUTH_DONE -eq 0 ]; then
+    gh auth status && ret=$? || ret=$?
+    if [ $ret -ne 0 ]; then
+      gh auth login && ret=$? || ret=$?
+      if [ $ret -ne 0 ]; then
+        gh auth status
+      fi
+    fi
+    GH_AUTH_DONE=1
+  fi
+}
+
+function add_key() {
+  gh_auth
+
+  # Error if the repo url is not a github repo with pattern: git@github.com:<org>/<repo>.git
+  pattern="git@github\.com:([_a-zA-Z0-9-]+)\/([_a-zA-Z0-9-]+)\.git"
+  if [[ ! $REPO_URL =~ $pattern ]]; then
+    echo "ERROR: The repo url $REPO_URL is not a github repo with pattern: git@github.com:<org>/<repo>.git"
+    echo "Consider using ssh authentication to access the repo."
+    exit 4
+  fi
+
+  # Generate deploy-key
+  ssh-keygen -t ecdsa -b 521 -f ${PROJECT_NAME}.ecdsa -C "$REPO_URL" -q -P ""
+
+  # Add deploy-key to github using gh
+  gh repo deploy-key add ${PROJECT_NAME}.ecdsa.pub -t deploy
+
+  # Add secret
+  gh secret set DEPLOY_KEY < ${PROJECT_NAME}.ecdsa
+
+  rm -rf ${PROJECT_NAME}.ecdsa*
+}
+
+function add_inventory_secret() {
+  gh_auth
+
+  SECRET_NAME="${1}_ssh_pass"
+  SECRET=$2
+
+  gh secret set $SECRET_NAME --body "$SECRET"
+}
+
+function prepare_inventory() {
+  # prompt inventory name
+  echo "Please enter the inventory name: (only contain alphanumeric characters ([a-z], [A-Z], [0-9]) or underscores (_))"
+  read INVENTORY_NAME
+
+  # prompt server address
+  echo "Please enter the server address:"
+  read SERVER_ADDRESS
+
+  # prompt server user
+  echo "Please enter the server user name:"
+  read SERVER_USER
+
+  # prompt server password
+  echo "Please enter the server password:"
+  read -s SERVER_PASSWORD
+
+  echo "Do you want to set this server as default? (y/n)"
+  read -r DEFAULT
+  while [ "$DEFAULT" != "y" ] && [ "$DEFAULT" != "n" ]; do
+    echo "Please enter y or n:"
+    read -r DEFAULT
+  done
+
+  PYTHON_VERSION=3.8
+  DEPLOY_DIR=deploy/$INVENTORY_NAME
+
+  mkdir -p $DEPLOY_DIR
+
+  # write server password to $DEPLOY_DIR/.env
+  echo "HOST_SSH_PASS=$SERVER_PASSWORD" > $DEPLOY_DIR/.env
+
+  # copy deploy/inventory.template.yml and replace <variable> with $VARIABLE
+  cp deploy/inventory.template.yml $DEPLOY_DIR/inventory.yml
+  sed -i "" "s/<server-address>/$(escape_sed $SERVER_ADDRESS)/g" $DEPLOY_DIR/inventory.yml
+  sed -i "" "s/<server-user>/$(escape_sed $SERVER_USER)/g" $DEPLOY_DIR/inventory.yml
+  sed -i "" "s/<project-dir>/$(escape_sed $PROJECT_NAME)/g" $DEPLOY_DIR/inventory.yml
+  sed -i "" "s/<repo-url>/$(escape_sed $REPO_URL)/g" $DEPLOY_DIR/inventory.yml
+  sed -i "" "s/<env-name>/$(escape_sed $PROJECT_NAME)/g" $DEPLOY_DIR/inventory.yml
+  sed -i "" "s/<python-version>/$(escape_sed $PYTHON_VERSION)/g" $DEPLOY_DIR/inventory.yml
+  sed -i "" "s/<host-name>/$(escape_sed $INVENTORY_NAME)/g" $DEPLOY_DIR/inventory.yml
+
+  if [ "$DEFAULT" == "y" ]; then
+    cp $DEPLOY_DIR/inventory.yml deploy/inventory.yml
+    cp $DEPLOY_DIR/.env deploy/.env
+    echo "
+/.gitignore
+/inventory.yml
+" > deploy/.gitignore
+  echo "INFO: Inventory ${INVENTORY_NAME} is set as default."
+  fi
+
+  $PYTHON add_inventory.py $INVENTORY_NAME
+  add_inventory_secret $INVENTORY_NAME $SERVER_PASSWORD
+
+  echo "INFO: Inventory ${INVENTORY_NAME} prepared."
+}
+
+function main() {
+  inflate_options "$@"
+  check_options
+  
+  if [ $NEW_REPO -eq 1 ]; then
+    prepare_package
+  fi
+
+  if [ $ADD_KEY -eq 1 ]; then
+    add_key
+  fi
+
+  if [ $ADD_INVENTORY -eq 1 ]; then
+    # Get inventory state in a loop
+    echo "Do you want to add an inventory? [y/n]"
+    read -r INVENTORY_ANSWER
+    while [[ $INVENTORY_ANSWER =~ ^[Yy]$ ]] || [[ ! $INVENTORY_ANSWER =~ ^[Nn]$ ]]; do
+      if [[ $INVENTORY_ANSWER =~ ^[Yy]$ ]]; then
+        prepare_inventory
+        echo "Do you want to add another inventory? [y/n]"
+        read -r INVENTORY_ANSWER
+      else
+        echo "Please answer y or n"
+        read -r INVENTORY_ANSWER
+      fi
+    done
+  fi
+}
+
+main "$@"

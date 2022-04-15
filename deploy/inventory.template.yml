@@ -1,0 +1,18 @@
+---
+all:
+  vars:
+    ansible_user: <server-user>
+    ansible_host: <server-address>
+    home: /home/{{ ansible_user }}
+    project_dir: '{{ home }}/<project-dir>'
+    git_repo: ssh://<repo-url>
+    env_name: <env-name>
+    python_version: <python-version>
+    conda_path: /share/apps/Anaconda/anaconda3.8/bin
+    activate: source {{ conda_path }}/activate {{ env_name }}
+    project_src: '{{ project_dir }}/src'
+  children:
+    hpc:
+      hosts:
+        <host-name>:
+          ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ForwardAgent=yes'

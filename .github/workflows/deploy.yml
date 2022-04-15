@@ -1,0 +1,51 @@
+name: Deploy
+on:
+  push:
+    branches:
+      - master
+
+  workflow_dispatch:
+
+jobs:
+  init:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v3
+
+      - id: set-matrix
+        run: echo "::set-output name=matrix::$(cat .github/conf/matrix.json)"
+
+  deploy:
+    runs-on: ubuntu-20.04
+    needs: init
+    if: ${{ fromJson(needs.init.outputs.matrix).inventory[0] != null }}
+
+    strategy:
+      matrix: ${{ fromJson(needs.init.outputs.matrix) }}
+
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v3
+
+      - name: Install requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
+
+      - uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.deploy_key }}
+
+      - name: Deploy
+        working-directory: ./deploy/
+        env:
+          SSH_PASS_KEY: ${{ matrix.inventory }}_ssh_pass
+          INVENTORY: ${{ matrix.inventory }}/inventory.yml
+        run: ansible-playbook -i ${{ env.INVENTORY }}
+          --extra-vars="
+          git_repo=git@github.com:${{ github.event.repository.owner.login }}/${{ github.event.repository.name }}.git
+          ansible_ssh_pass=${{ secrets[env.SSH_PASS_KEY] }}"
+          deploy.yml

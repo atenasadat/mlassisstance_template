@@ -1,0 +1,28 @@
+---
+- hosts: all
+  remote_user: '{{ ansible_user }}'
+  tasks:
+    - name: Check mandatory variables are defined
+      assert:
+        that:
+          - project_dir is defined
+          - git_repo is defined
+          - activate is defined
+
+    - name: Get git executable
+      shell: '{{ activate }} && which git'
+      register: git_executable
+
+    - name: Checkout
+      git:
+        executable: '{{ git_executable.stdout }}'
+        repo: '{{ git_repo }}'
+        dest: '{{ project_dir }}'
+        force: yes
+
+    - name: Install requirements
+      shell: |
+        {{ activate }}
+        pip install -r requirements.txt
+      args:
+        chdir: '{{ project_dir }}'
