@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from mlassistant.core.data import ContentLoader
 
 if TYPE_CHECKING:
-    from ..config import MnistConfig
+    from ..config import XRayConfig
 import cv2
 
 import os
@@ -50,19 +50,11 @@ MONTGOMERY_RIGHT_MASK_DIR = os.path.join(MONTGOMERY_TRAIN_DIR, "ManualMask", "ri
 
 
 # print("DataLoader .....")
-class MnistLoader(ContentLoader):
-    """ The MnistLoader class """
+class XRayLoader(ContentLoader):
 
-    def __init__(self, conf: 'MnistConfig', prefix_name: str, data_specification: str):
+    def __init__(self, conf: 'XRayConfig', prefix_name: str, data_specification: str):
         super().__init__(conf, prefix_name, data_specification)
-        self._x, self._y = self._load_data(data_specification)
-
-        # self.class_samples_indices: Dict[Any, np.ndarray] = dict()
-        # for i in range(5):
-        #     if self._y[i] not in self.class_samples_indices:
-        #           print("hi")
-        #     self.class_samples_indices[self._y[i]] = []
-        # self.class_samples_indices[self._y[i]].append(i)
+        self._x, self._y, self._mask = self._load_data(data_specification)
 
     def load_monto_data(self):
 
@@ -99,21 +91,11 @@ class MnistLoader(ContentLoader):
                 cv2.imwrite(os.path.join(SEGMENTATION_TEST_MASK_DIR, base_file), mask)
                 cv2.imwrite(os.path.join(SEGMENTATION_TEST_DILATE_DIR, base_file), mask_dilate)
 
-                # filename, fileext = os.path.splitext(base_file)
-                # cv2.imwrite(os.path.join(SEGMENTATION_TEST_DIR, base_file), image)
-                # cv2.imwrite(os.path.join(SEGMENTATION_TEST_DIR, "%s_mask%s" % (filename, fileext)), mask)
-                # cv2.imwrite(os.path.join(SEGMENTATION_TEST_DIR, "%s_dilate%s" % (filename, fileext)), mask_dilate)
-
             else:
                 # print("Monto Validation")
                 cv2.imwrite(os.path.join(SEGMENTATION_VALID_IMAGE_DIR, base_file), image)
                 cv2.imwrite(os.path.join(SEGMENTATION_VALID_MASK_DIR, base_file), mask)
                 cv2.imwrite(os.path.join(SEGMENTATION_VALID_DILATE_DIR, base_file), mask_dilate)
-                # print("validation")
-                # filename, fileext = os.path.splitext(base_file)
-                # cv2.imwrite(os.path.join(SEGMENTATION_VALID_DIR, base_file), image)
-                # cv2.imwrite(os.path.join(SEGMENTATION_VALID_DIR, "%s_mask%s" % (filename, fileext)), mask)
-                # cv2.imwrite(os.path.join(SEGMENTATION_VALID_DIR, "%s_dilate%s" % (filename, fileext)), mask_dilate)
 
     def load_shenzen_data(self):
         # print("Loading shenzen data")
@@ -136,7 +118,6 @@ class MnistLoader(ContentLoader):
             mask_dilate = cv2.dilate(mask, DILATE_KERNEL, iterations=1)
 
             if (mask_file in shenzhen_train):
-                print("Shenzen train")
                 cv2.imwrite(os.path.join(SEGMENTATION_IMAGE_DIR, base_file), image)
                 cv2.imwrite(os.path.join(SEGMENTATION_MASK_DIR, base_file), mask)
                 cv2.imwrite(os.path.join(SEGMENTATION_DILATE_DIR, base_file), mask_dilate)
@@ -146,15 +127,6 @@ class MnistLoader(ContentLoader):
                 cv2.imwrite(os.path.join(SEGMENTATION_TEST_MASK_DIR, base_file), mask)
                 cv2.imwrite(os.path.join(SEGMENTATION_TEST_DILATE_DIR, base_file), mask_dilate)
 
-                # filename, fileext = os.path.splitext(base_file)
-
-                # cv2.imwrite(os.path.join(SEGMENTATION_TEST_DIR, base_file), \
-                #             image)
-                # cv2.imwrite(os.path.join(SEGMENTATION_TEST_DIR, \
-                #                         "%s_mask%s" % (filename, fileext)), mask)
-                # cv2.imwrite(os.path.join(SEGMENTATION_TEST_DIR, \
-                #                         "%s_dilate%s" % (filename, fileext)), mask_dilate)
-
 
             else:
 
@@ -162,14 +134,6 @@ class MnistLoader(ContentLoader):
                 cv2.imwrite(os.path.join(SEGMENTATION_VALID_IMAGE_DIR, base_file), image)
                 cv2.imwrite(os.path.join(SEGMENTATION_VALID_MASK_DIR, base_file), mask)
                 cv2.imwrite(os.path.join(SEGMENTATION_VALID_DILATE_DIR, base_file), mask_dilate)
-                # print("valid shenzen")
-                # filename , fileext = os.path.splitext(base_file)
-                # cv2.imwrite(os.path.join(SEGMENTATION_VALID_DIR, base_file), \
-                #             image)
-                # cv2.imwrite(os.path.join(SEGMENTATION_VALID_DIR, \
-                #                         "%s_mask%s" % (filename, fileext)), mask)
-                # cv2.imwrite(os.path.join(SEGMENTATION_VALID_DIR, \
-                #                         "%s_dilate%s" % (filename, fileext)), mask_dilate)
 
     def _load_data(self, data_specification: str) -> Tuple[np.ndarray, np.ndarray]:
 
@@ -187,34 +151,37 @@ class MnistLoader(ContentLoader):
         Y_train = glob(os.path.join(SEGMENTATION_MASK_DIR, "*.png"))
         Y_test = glob(os.path.join(SEGMENTATION_TEST_MASK_DIR, "*.png"))
         Y_val = glob(os.path.join(SEGMENTATION_VALID_MASK_DIR, "*.png"))
-
         dilate_files = glob(os.path.join(SEGMENTATION_DILATE_DIR, "*.png"))
 
-        print("x_train", type(X_train), len(X_train))
-        print("x_train[0]", (cv2.imread(X_train[0])).shape)  # 512 512 3
+        # print("x_train" , type(X_train) , len(X_train) )
+        # print("x_train[0]",(cv2.imread(X_train[0])).shape) # 512 512 3
 
-        # x_train , x_test , x_val= np.empty(len(X_train)) , np.empty(len(X_test)) , np.empty(len(X_val))
-        # y_train , y_test , y_val= np.empty(len(Y_train)) , np.empty(len(Y_test)) , np.empty(len(Y_val))
         x_train, x_test, x_val = [], [], []
-        y_train, y_test, y_val = [], [], []
-        for i in range(5):
-            x_train.append(cv2.imread(X_train[i]).reshape(3, 512, 512))
-            y_train.append(cv2.imread(Y_train[i]).reshape(3, 512, 512))
-        for i in range(5):
-            x_val.append(cv2.imread(X_val[i]).reshape(3, 512, 512))
-            y_val.append(cv2.imread(Y_val[i]).reshape(3, 512, 512))
-        for i in range(5):
-            x_test.append(cv2.imread(X_test[i]).reshape(3, 512, 512))
-            y_test.append(cv2.imread(Y_test[i]).reshape(3, 512, 512))
+        mask_train, mask_test, mask_val = [], [], []
 
+        print("train data length {} validation {} test {}".format(len(X_train), len(X_val), len(X_test)))
+        for i in range(len(X_train)):
+            x_train.append(cv2.imread(X_train[i]).reshape(3, 512, 512))
+            mask_train.append(cv2.imread(Y_train[i]).reshape(3, 512, 512))
+        for i in range(len(X_val)):
+            x_val.append(cv2.imread(X_val[i]).reshape(3, 512, 512))
+            mask_val.append(cv2.imread(Y_val[i]).reshape(3, 512, 512))
+        for i in range(len(X_test)):
+            x_test.append(cv2.imread(X_test[i]).reshape(3, 512, 512))
+            mask_test.append(cv2.imread(Y_test[i]).reshape(3, 512, 512))
         x_train = np.array(x_train)
-        y_train = np.array(y_train)
-        print(x_train.shape)
+        # y_train = np.array(y_train)
+
+        y_train = np.ones(len(x_train))
+        y_test = np.ones(len(x_test))
+        y_val = np.ones(len(x_val))
+
+        # print(x_train.shape)
 
         data = {
-            'train': (x_train, y_train),
-            'val': (x_val, y_val),
-            'test': (x_test, y_test),
+            'train': (x_train, y_train, mask_train),
+            'val': (x_val, y_val, mask_val),
+            'test': (x_test, y_test, mask_test),
         }
 
         return data[data_specification]
@@ -227,6 +194,8 @@ class MnistLoader(ContentLoader):
 
     def get_samples_labels(self):
         # print("get sample labels:-------" , self._y[0] )
+        # print(self._y)
+        # print('hi',self._y)
         return self._y
 
     def reorder_samples(self, indices, new_names):
@@ -251,12 +220,30 @@ class MnistLoader(ContentLoader):
         return {
             'x': self._get_x,
             'y': self._get_y,
+            'mask': self._get_mask
         }
 
     def _get_x(self, samples_inds: np.ndarray, samples_elements_inds: Union[None, np.ndarray]) \
             -> np.ndarray:
-        return self._x[samples_inds]
+
+        return np.array(self._x)[samples_inds]
 
     def _get_y(self, samples_inds: np.ndarray, samples_elements_inds: Union[None, np.ndarray]) \
             -> np.ndarray:
         return self._y[samples_inds]
+
+    def _get_mask(self, samples_inds: np.ndarray, samples_elements_inds: Union[None, np.ndarray]) \
+            -> np.ndarray:
+        # print("samples_inds" , type(samples_inds[0]))
+        # print("sample_indexes" ,  self._mask[np.array([0, 2])])
+        # print("111" , self._mask[0])
+        return np.array(self._mask)[samples_inds.astype(int)]
+
+
+
+
+
+
+
+
+

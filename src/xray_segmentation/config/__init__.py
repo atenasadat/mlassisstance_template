@@ -1,1 +1,1 @@
-from .mnist_config import MnistConfig
+from .xray_config import XRayConfig

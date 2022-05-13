@@ -1,1 +1,1 @@
-from .mnist_loader import MnistLoader
+from .xray_loader import XRayLoader
